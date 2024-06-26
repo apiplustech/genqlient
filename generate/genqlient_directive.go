@@ -220,7 +220,7 @@ func (dir *genqlientDirective) validate(node interface{}, schema *ast.Schema) er
 	}
 
 	switch node := node.(type) {
-	case *ast.OperationDefinition:
+	case *OperationDefinition:
 		if dir.Bind != "" {
 			return errorf(dir.pos, "bind may not be applied to the entire operation")
 		}

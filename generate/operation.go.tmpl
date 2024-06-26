@@ -39,11 +39,19 @@ func {{.Name}}(
     var data_ {{.ResponseName}}
     resp_ := &graphql.Response{Data: &data_}
 
+    {{if .HasFile }}
+    err_ = client_.MakeMultipartRequest(
+        {{if ne .Config.ContextType "-"}}ctx_{{else}}nil{{end}},
+        req_,
+        resp_,
+    )
+    {{else}}
     err_ = client_.MakeRequest(
         {{if ne .Config.ContextType "-"}}ctx_{{else}}nil{{end}},
         req_,
         resp_,
     )
+    {{end}}
 	
     return &data_, {{if .Config.Extensions -}}resp_.Extensions,{{end -}} err_
 }

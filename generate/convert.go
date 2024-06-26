@@ -92,7 +92,7 @@ func (g *generator) baseTypeForOperation(operation ast.Operation) (*ast.Definiti
 // convertOperation builds the response-type into which the given operation's
 // result will be unmarshaled.
 func (g *generator) convertOperation(
-	operation *ast.OperationDefinition,
+	operation *OperationDefinition,
 	queryOptions *genqlientDirective,
 ) (goType, error) {
 	name := operation.Name + "Response"
@@ -156,7 +156,7 @@ var builtinTypes = map[string]string{
 // This type is not exposed to the user; it's just used internally in the
 // unmarshaler; and it's used as a container
 func (g *generator) convertArguments(
-	operation *ast.OperationDefinition,
+	operation *OperationDefinition,
 	queryOptions *genqlientDirective,
 ) (*goStructType, error) {
 	if len(operation.VariableDefinitions) == 0 {
@@ -179,7 +179,7 @@ func (g *generator) convertArguments(
 		// names.go) and the selection-set (we use all the input type's fields,
 		// and so on recursively).  See also the `case ast.InputObject` in
 		// convertDefinition, below.
-		goTyp, err := g.convertType(nil, arg.Type, nil, options, queryOptions)
+		goTyp, err := g.convertType(operation, nil, arg.Type, nil, options, queryOptions)
 		if err != nil {
 			return nil, err
 		}
@@ -221,6 +221,7 @@ func (g *generator) convertArguments(
 // field, and may be a list or a reference to a named type, with or without the
 // "non-null" annotation.
 func (g *generator) convertType(
+	operation *OperationDefinition,
 	namePrefix *prefixList,
 	typ *ast.Type,
 	selectionSet ast.SelectionSet,
@@ -239,14 +240,14 @@ func (g *generator) convertType(
 
 	if typ.Elem != nil {
 		// Type is a list.
-		elem, err := g.convertType(
+		elem, err := g.convertType(operation,
 			namePrefix, typ.Elem, selectionSet, options, queryOptions)
 		return &goSliceType{elem}, err
 	}
 
 	// If this is a builtin type or custom scalar, just refer to it.
 	def := g.schema.Types[typ.Name()]
-	goTyp, err := g.convertDefinition(
+	goTyp, err := g.convertDefinition(operation,
 		namePrefix, def, typ.Position, selectionSet, options, queryOptions)
 
 	if g.getStructReference(def) {
@@ -292,6 +293,7 @@ func (g *generator) getStructReference(
 // *ast.Definition, which represents the definition of a type in the GraphQL
 // schema, which may be referenced by a field-type (see convertType).
 func (g *generator) convertDefinition(
+	operation *OperationDefinition,
 	namePrefix *prefixList,
 	def *ast.Definition,
 	pos *ast.Position,
@@ -303,7 +305,27 @@ func (g *generator) convertDefinition(
 	// want, subject to the caveats described in Config.Bindings.)  Local
 	// bindings are checked in the caller (convertType) and never get here,
 	// unless the binding is "-" which means "ignore the global binding".
-	globalBinding, ok := g.Config.Bindings[def.Name]
+	var (
+		isUpload      bool
+		ok            bool
+		globalBinding *TypeBinding
+	)
+	// If it is scalar Upload, the default binding will be github.com/Khan/genqlient/graphql.Upload
+	if def.Kind == ast.Scalar && def.Name == "Upload" {
+		isUpload = true
+		ok = true
+		globalBinding = &TypeBinding{
+			Type: "github.com/Khan/genqlient/graphql.Upload",
+		}
+	}
+	// Override if there is user binding
+	if binding, ok := g.Config.Bindings[def.Name]; ok {
+		isUpload = false
+		globalBinding = binding
+	}
+	if operation != nil {
+		operation.HasFile = operation.HasFile || isUpload
+	}
 	if ok && options.Bind != "-" {
 		if options.TypeName != "" {
 			// The option position (in the query) is more useful here.
@@ -444,7 +466,7 @@ func (g *generator) convertDefinition(
 			// TODO(benkraft): Can we refactor to avoid passing the values that
 			// will be ignored?  We know field.Type is a scalar, enum, or input
 			// type.  But plumbing that is a bit tricky in practice.
-			fieldGoType, err := g.convertType(
+			fieldGoType, err := g.convertType(operation,
 				namePrefix, field.Type, nil, fieldOptions, queryOptions)
 			if err != nil {
 				return nil, err
@@ -506,7 +528,7 @@ func (g *generator) convertDefinition(
 			// request it (and it was automatically added by
 			// preprocessQueryDocument).  But in practice it doesn't really
 			// hurt, and would be extra work to avoid, so we just leave it.
-			implTyp, err := g.convertDefinition(
+			implTyp, err := g.convertDefinition(operation,
 				namePrefix, implDef, pos, selectionSet, options, queryOptions)
 			if err != nil {
 				return nil, err
@@ -914,7 +936,7 @@ func (g *generator) convertField(
 	goName := upperFirst(field.Alias)
 	namePrefix = nextPrefix(namePrefix, field)
 
-	fieldGoType, err := g.convertType(
+	fieldGoType, err := g.convertType(nil,
 		namePrefix, field.Definition.Type, field.SelectionSet,
 		fieldOptions, queryOptions)
 	if err != nil {

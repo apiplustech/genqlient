@@ -66,6 +66,8 @@ type operation struct {
 	SourceFilename string `json:"sourceLocation"`
 	// The config within which we are generating code.
 	Config *Config `json:"-"`
+	// If it has file for multipart upload.
+	HasFile bool
 }
 
 type exportedOperations struct {
@@ -122,7 +124,7 @@ func (g *generator) WriteTypes(w io.Writer) error {
 
 // usedFragmentNames returns the named-fragments used by (i.e. spread into)
 // this operation.
-func (g *generator) usedFragments(op *ast.OperationDefinition) ast.FragmentDefinitionList {
+func (g *generator) usedFragments(op *OperationDefinition) ast.FragmentDefinitionList {
 	var retval, queue ast.FragmentDefinitionList
 	seen := map[string]bool{}
 
@@ -138,7 +140,7 @@ func (g *generator) usedFragments(op *ast.OperationDefinition) ast.FragmentDefin
 		queue = append(queue, def)
 	})
 
-	doc := ast.QueryDocument{Operations: ast.OperationList{op}}
+	doc := ast.QueryDocument{Operations: ast.OperationList{&op.OperationDefinition}}
 	validator.Walk(g.schema, &doc, &observers)
 	// Well, easy-ish: we also have to look recursively.
 	// Note GraphQL guarantees there are no cycles among fragments:
@@ -227,7 +229,7 @@ func (g *generator) preprocessQueryDocument(doc *ast.QueryDocument) {
 // validateOperation checks for a few classes of operations that gqlparser
 // considers valid but we don't allow, and returns an error if this operation
 // is invalid for genqlient's purposes.
-func (g *generator) validateOperation(op *ast.OperationDefinition) error {
+func (g *generator) validateOperation(op *OperationDefinition) error {
 	_, err := g.baseTypeForOperation(op.Operation)
 	if err != nil {
 		// (e.g. operation has subscriptions, which we don't support)
@@ -248,13 +250,13 @@ func (g *generator) validateOperation(op *ast.OperationDefinition) error {
 // g.typeMap any types referenced by the operation, except for types belonging
 // to named fragments, which are added separately by Generate via
 // convertFragment.
-func (g *generator) addOperation(op *ast.OperationDefinition) error {
+func (g *generator) addOperation(op *OperationDefinition) error {
 	if err := g.validateOperation(op); err != nil {
 		return err
 	}
 
 	queryDoc := &ast.QueryDocument{
-		Operations: ast.OperationList{op},
+		Operations: ast.OperationList{&op.OperationDefinition},
 		Fragments:  g.usedFragments(op),
 	}
 	g.preprocessQueryDocument(queryDoc)
@@ -305,6 +307,7 @@ func (g *generator) addOperation(op *ast.OperationDefinition) error {
 		ResponseName:   responseType.Reference(),
 		SourceFilename: sourceFilename,
 		Config:         g.Config, // for the convenience of the template
+		HasFile:        op.HasFile,
 	})
 
 	return nil
@@ -346,7 +349,7 @@ func Generate(config *Config) (map[string][]byte, error) {
 	// types it needs.
 	g := newGenerator(config, schema, document.Fragments)
 	for _, op := range document.Operations {
-		if err = g.addOperation(op); err != nil {
+		if err = g.addOperation(&OperationDefinition{OperationDefinition: *op}); err != nil {
 			return nil, err
 		}
 	}

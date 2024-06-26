@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime/multipart"
 	"net/http"
 	"net/url"
 	"strings"
@@ -34,6 +35,11 @@ type Client interface {
 	// MakeRequest.  The field resp.Data will be prepopulated with a pointer
 	// to an empty struct of the correct generated type (e.g. MyQueryResponse).
 	MakeRequest(
+		ctx context.Context,
+		req *Request,
+		resp *Response,
+	) error
+	MakeMultipartRequest(
 		ctx context.Context,
 		req *Request,
 		resp *Response,
@@ -174,6 +180,79 @@ func (c *client) MakeRequest(ctx context.Context, req *Request, resp *Response) 
 	if len(resp.Errors) > 0 {
 		return resp.Errors
 	}
+	return nil
+}
+
+type fileVariable struct {
+	mapKey string
+	file   *Upload
+}
+
+func findFiles(parentKey string, variables map[string]any) []*fileVariable {
+	fileVariables := []*fileVariable{}
+	for key, variable := range variables {
+		switch v := variable.(type) {
+		case map[string]any:
+			fileVariables = append(fileVariables, findFiles(parentKey+"."+key, v)...)
+		case []map[string]any:
+			for i, child := range v {
+				fileVariables = append(fileVariables, findFiles(fmt.Sprintf("%s.%s.%d", parentKey, key, i), child)...)
+			}
+			fileVariables = append(fileVariables)
+		case []*Upload:
+			for i, file := range v {
+				fileVariables = append(fileVariables, &fileVariable{
+					mapKey: fmt.Sprintf("%s.%s.%d", parentKey, key, i),
+					file:   file,
+				})
+			}
+		case *Upload:
+			fileVariables = append(fileVariables, &fileVariable{
+				mapKey: parentKey + "." + key,
+				file:   v,
+			})
+		}
+	}
+	return fileVariables
+}
+
+func (c *client) MakeMultipartRequest(ctx context.Context, req *Request, resp *Response) error {
+	httpRequest := http.NewRequest(http.MethodPost, c.endpoint, http.NoBody)
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+
+	// operations
+	requestBody, _ := json.Marshal(req)
+	err := bodyWriter.WriteField("operations", string(requestBody))
+	if err != nil {
+		return fmt.Errorf("error writing operations to body: %w", err)
+	}
+
+	// map
+	variables, err := json.Marshal(req.Variables)
+	if err != nil {
+		return fmt.Errorf("error marshaling variables: %w", err)
+	}
+	variablesMap := map[string]any{}
+	err = json.Unmarshal(variables, &variablesMap)
+	if err != nil {
+		return fmt.Errorf("error unmarshaling variables to map: %w", err)
+	}
+	mapData := ""
+	fileVariables := findFiles("variables", variablesMap)
+	// group file to avoid uploading duplicated files
+	filesGroup := [][]*fileVariable{}
+	for _, file := range fileVariables {
+		for group, fileGroup := range filesGroup {
+
+		}
+	}
+	err = bodyWriter.WriteField("map", mapData)
+	if err != nil {
+		return fmt.Errorf("error writing map data to body: %w", err)
+	}
+
+	// files
 	return nil
 }
 
