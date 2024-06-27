@@ -6,8 +6,7 @@ import (
 )
 
 type Upload struct {
-	Filename string
-	MIMEType string
+	FileName string
 	Body     io.Reader
 }
 

@@ -15,6 +15,7 @@ func {{.Name}}(
     {{.GraphQLName}} {{.GoType.Reference}},
     {{end -}}
     {{end -}}
+    options ...{{ref "github.com/Khan/genqlient/graphql.Option"}},
 ) (*{{.ResponseName}}, {{if .Config.Extensions -}}map[string]interface{},{{end}} error) {
     req_ := &graphql.Request{
         OpName: "{{.Name}}",
@@ -27,6 +28,11 @@ func {{.Name}}(
         },
     {{end -}}
     }
+
+    for _, op := range options {
+        op(req_)
+    }
+
     var err_ error
     {{if .Config.ClientGetter -}}
     var client_ graphql.Client
@@ -39,19 +45,11 @@ func {{.Name}}(
     var data_ {{.ResponseName}}
     resp_ := &graphql.Response{Data: &data_}
 
-    {{if .HasFile }}
-    err_ = client_.MakeMultipartRequest(
-        {{if ne .Config.ContextType "-"}}ctx_{{else}}nil{{end}},
-        req_,
-        resp_,
-    )
-    {{else}}
     err_ = client_.MakeRequest(
         {{if ne .Config.ContextType "-"}}ctx_{{else}}nil{{end}},
         req_,
         resp_,
     )
-    {{end}}
-	
+
     return &data_, {{if .Config.Extensions -}}resp_.Extensions,{{end -}} err_
 }
