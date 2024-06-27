@@ -103,11 +103,6 @@ func (c *roundtripClient) MakeRequest(ctx context.Context, req *graphql.Request,
 	return nil
 }
 
-func (c *roundtripClient) MakeMultipartRequest(ctx context.Context, req *graphql.Request, resp *graphql.Response) error {
-	// TODO: Implment this for integration test.
-	return nil
-}
-
 func newRoundtripClients(t *testing.T, endpoint string) []graphql.Client {
 	return []graphql.Client{newRoundtripClient(t, endpoint), newRoundtripGetClient(t, endpoint)}
 }
