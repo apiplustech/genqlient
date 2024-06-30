@@ -259,12 +259,15 @@ type fileVariable struct {
 }
 
 // recursively find all the fields that are type Upload.
-func findFiles(parentKey string, v reflect.Value) []*fileVariable {
+func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, error) {
+	if depth > 10000 {
+		return nil, errors.New("possible stack overflow error")
+	}
 	fileVariables := []*fileVariable{}
 
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return nil
+			return nil, nil
 		}
 		v = v.Elem()
 	}
@@ -275,7 +278,7 @@ func findFiles(parentKey string, v reflect.Value) []*fileVariable {
 			mapKey: parentKey,
 			file:   file,
 		})
-		return fileVariables
+		return fileVariables, nil
 	}
 
 	switch v.Kind() {
@@ -287,16 +290,24 @@ func findFiles(parentKey string, v reflect.Value) []*fileVariable {
 			if jsonTag != "" && jsonTag != "-" {
 				fieldName = jsonTag
 			}
-			fileVariables = append(fileVariables, findFiles(parentKey+"."+fieldName, field)...)
+			files, err := findFiles(parentKey+"."+fieldName, field, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fileVariables = append(fileVariables, files...)
 		}
 	case reflect.Slice, reflect.Array:
 		for i := 0; i < v.Len(); i++ {
 			elem := v.Index(i)
-			fileVariables = append(fileVariables, findFiles(parentKey+"."+strconv.Itoa(i), elem)...)
+			files, err := findFiles(parentKey+"."+strconv.Itoa(i), elem, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fileVariables = append(fileVariables, files...)
 		}
 	}
 
-	return fileVariables
+	return fileVariables, nil
 }
 
 func createUploadFileRequest(req *Request, endpoint string) (*http.Request, error) {
@@ -320,7 +331,10 @@ func createUploadFileRequest(req *Request, endpoint string) (*http.Request, erro
 
 	// map
 	mapData := ""
-	fileVariables := findFiles("variables", reflect.ValueOf(req.Variables))
+	fileVariables, err := findFiles("variables", reflect.ValueOf(req.Variables), 0)
+	if err != nil {
+		return nil, fmt.Errorf("error finding files: %w", err)
+	}
 	// group files to avoid uploading duplicated files
 	filesGroup := [][]*fileVariable{}
 	for _, file := range fileVariables {
