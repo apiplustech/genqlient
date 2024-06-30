@@ -274,6 +274,9 @@ func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, e
 
 	if v.Type() == reflect.TypeOf(Upload{}) {
 		file := v.Interface().(Upload)
+		if file.Body == nil {
+			return nil, errors.New("Upload file body cannot be nil")
+		}
 		fileVariables = append(fileVariables, &fileVariable{
 			mapKey: parentKey,
 			file:   file,
