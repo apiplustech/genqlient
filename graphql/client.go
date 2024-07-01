@@ -122,8 +122,6 @@ type Request struct {
 	// require this unless there are multiple queries in the
 	// document, but genqlient sets it unconditionally anyway.
 	OpName string `json:"operationName"`
-	// If this is true, request will do multipart upload file.
-	UploadFile bool
 }
 
 // Response that contains data returned by the GraphQL API.
@@ -144,17 +142,25 @@ type Response struct {
 func (c *client) MakeRequest(ctx context.Context, req *Request, resp *Response) error {
 	var httpReq *http.Request
 	var err error
+	var fileVariables []*fileVariable
+	if req.Variables != nil {
+		fileVariables, err = findFiles("variables", reflect.ValueOf(req.Variables), 0)
+	}
+	if err != nil {
+		return fmt.Errorf("error finding file variables: %w", err)
+	}
+
 	if c.method == http.MethodGet {
 		httpReq, err = c.createGetRequest(req)
 	} else {
-		httpReq, err = c.createPostRequest(req)
+		httpReq, err = c.createPostRequest(req, fileVariables)
 	}
 
 	if err != nil {
 		return err
 	}
 
-	if !req.UploadFile || c.method == http.MethodGet {
+	if len(fileVariables) == 0 || c.method == http.MethodGet {
 		httpReq.Header.Set("Content-Type", "application/json")
 	}
 
@@ -187,9 +193,9 @@ func (c *client) MakeRequest(ctx context.Context, req *Request, resp *Response) 
 	return nil
 }
 
-func (c *client) createPostRequest(req *Request) (*http.Request, error) {
-	if req.UploadFile {
-		return createUploadFileRequest(req, c.endpoint)
+func (c *client) createPostRequest(req *Request, fileVariables []*fileVariable) (*http.Request, error) {
+	if len(fileVariables) > 0 {
+		return createUploadFileRequest(req, c.endpoint, fileVariables)
 	}
 	body, err := json.Marshal(req)
 	if err != nil {
@@ -313,7 +319,7 @@ func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, e
 	return fileVariables, nil
 }
 
-func createUploadFileRequest(req *Request, endpoint string) (*http.Request, error) {
+func createUploadFileRequest(req *Request, endpoint string, fileVariables []*fileVariable) (*http.Request, error) {
 	httpRequest, err := http.NewRequest(http.MethodPost, endpoint, http.NoBody)
 	if err != nil {
 		return nil, fmt.Errorf("error creating request: %w", err)
@@ -334,10 +340,6 @@ func createUploadFileRequest(req *Request, endpoint string) (*http.Request, erro
 
 	// map
 	mapData := ""
-	fileVariables, err := findFiles("variables", reflect.ValueOf(req.Variables), 0)
-	if err != nil {
-		return nil, fmt.Errorf("error finding files: %w", err)
-	}
 	// group files to avoid uploading duplicated files
 	filesGroup := [][]*fileVariable{}
 	for _, file := range fileVariables {
