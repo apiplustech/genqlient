@@ -273,7 +273,7 @@ func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, e
 
 	if v.Kind() == reflect.Ptr {
 		if v.IsNil() {
-			return nil, nil
+			return fileVariables, nil
 		}
 		v = v.Elem()
 	}
@@ -314,6 +314,7 @@ func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, e
 			}
 			fileVariables = append(fileVariables, files...)
 		}
+	default:
 	}
 
 	return fileVariables, nil
@@ -340,65 +341,37 @@ func createUploadFileRequest(req *Request, endpoint string, fileVariables []*fil
 
 	// map
 	mapData := ""
-	// group files to avoid uploading duplicated files
-	filesGroup := [][]*fileVariable{}
-	for _, file := range fileVariables {
-		foundDuplicated := false
-		for group, fileGroup := range filesGroup {
-			file2 := fileGroup[0]
-			if file.file.FileName == file2.file.FileName {
-				f1, err := io.ReadAll(file.file.Body)
-				if err != nil {
-					return nil, fmt.Errorf("error reading file: %w", err)
-				}
-				f2, err := io.ReadAll(file2.file.Body)
-				if err != nil {
-					return nil, fmt.Errorf("error reading file: %w", err)
-				}
-				file.file.Body = bytes.NewReader(f1)
-				file2.file.Body = bytes.NewReader(f2)
-				if bytes.Equal(f1, f2) {
-					foundDuplicated = true
-					filesGroup[group] = append(filesGroup[group], file)
-					break
-				}
-			}
-		}
-		if !foundDuplicated {
-			filesGroup = append(filesGroup, []*fileVariable{file})
+	variablesString := []string{}
+	if len(fileVariables) > 0 {
+		for i, files := range fileVariables {
+			variablesString = append(variablesString, fmt.Sprintf("\"%d\":[\"%s\"]", i, files.mapKey))
 		}
 	}
-	if len(filesGroup) > 0 {
-		variablesString := []string{}
-		for i, files := range filesGroup {
-			variablesString = append(variablesString, fmt.Sprintf("\"%d\":[%s]", i, joinMapKeys(files)))
-		}
-		mapData = `{` + strings.Join(variablesString, ",") + `}`
-	}
+	mapData = `{` + strings.Join(variablesString, ",") + `}`
 	err = bodyWriter.WriteField("map", mapData)
 	if err != nil {
 		return nil, fmt.Errorf("error writing map data to body: %w", err)
 	}
 
 	// files
-	for i, file := range filesGroup {
-		h := make(textproto.MIMEHeader)
+	for i, fileVariable := range fileVariables {
+		header := make(textproto.MIMEHeader)
 		dispParams := map[string]string{"name": strconv.Itoa(i)}
-		fileName := strings.TrimSpace(file[0].file.FileName)
+		fileName := strings.TrimSpace(fileVariable.file.FileName)
 		if fileName != "" {
 			dispParams["filename"] = fileName
 		}
-		h.Set("Content-Disposition", mime.FormatMediaType("form-data", dispParams))
-		b, err := io.ReadAll(file[0].file.Body)
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", dispParams))
+		fileBytes, err := io.ReadAll(fileVariable.file.Body)
 		if err != nil {
 			return nil, fmt.Errorf("error reading file: %w", err)
 		}
-		h.Set("Content-Type", http.DetectContentType(b))
-		ff, err := bodyWriter.CreatePart(h)
+		header.Set("Content-Type", http.DetectContentType(fileBytes))
+		partBodyWriter, err := bodyWriter.CreatePart(header)
 		if err != nil {
 			return nil, fmt.Errorf("error create multipart header: %w", err)
 		}
-		_, err = ff.Write(b)
+		_, err = partBodyWriter.Write(fileBytes)
 		if err != nil {
 			return nil, fmt.Errorf("error writing file to body: %w", err)
 		}
@@ -407,12 +380,4 @@ func createUploadFileRequest(req *Request, endpoint string, fileVariables []*fil
 	httpRequest.Header.Set("Content-Type", bodyWriter.FormDataContentType())
 
 	return httpRequest, nil
-}
-
-func joinMapKeys(files []*fileVariable) string {
-	fileKeys := make([]string, len(files))
-	for i, v := range files {
-		fileKeys[i] = fmt.Sprintf("\"%s\"", v.mapKey)
-	}
-	return strings.Join(fileKeys, ",")
 }
