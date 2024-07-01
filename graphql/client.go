@@ -7,8 +7,13 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"mime"
+	"mime/multipart"
 	"net/http"
+	"net/textproto"
 	"net/url"
+	"reflect"
+	"strconv"
 	"strings"
 
 	"github.com/vektah/gqlparser/v2/gqlerror"
@@ -137,16 +142,27 @@ type Response struct {
 func (c *client) MakeRequest(ctx context.Context, req *Request, resp *Response) error {
 	var httpReq *http.Request
 	var err error
+	var fileVariables []*fileVariable
+	if req.Variables != nil {
+		fileVariables, err = findFiles("variables", reflect.ValueOf(req.Variables), 0)
+	}
+	if err != nil {
+		return fmt.Errorf("error finding file variables: %w", err)
+	}
+
 	if c.method == http.MethodGet {
 		httpReq, err = c.createGetRequest(req)
 	} else {
-		httpReq, err = c.createPostRequest(req)
+		httpReq, err = c.createPostRequest(req, fileVariables)
 	}
 
 	if err != nil {
 		return err
 	}
-	httpReq.Header.Set("Content-Type", "application/json")
+
+	if len(fileVariables) == 0 || c.method == http.MethodGet {
+		httpReq.Header.Set("Content-Type", "application/json")
+	}
 
 	if ctx != nil {
 		httpReq = httpReq.WithContext(ctx)
@@ -177,7 +193,10 @@ func (c *client) MakeRequest(ctx context.Context, req *Request, resp *Response) 
 	return nil
 }
 
-func (c *client) createPostRequest(req *Request) (*http.Request, error) {
+func (c *client) createPostRequest(req *Request, fileVariables []*fileVariable) (*http.Request, error) {
+	if len(fileVariables) > 0 {
+		return createUploadFileRequest(req, c.endpoint, fileVariables)
+	}
 	body, err := json.Marshal(req)
 	if err != nil {
 		return nil, err
@@ -238,4 +257,127 @@ func (c *client) createGetRequest(req *Request) (*http.Request, error) {
 	}
 
 	return httpReq, nil
+}
+
+type fileVariable struct {
+	mapKey string
+	file   Upload
+}
+
+// recursively find all the fields that are type Upload.
+func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, error) {
+	if depth > 10000 {
+		return nil, errors.New("possible stack overflow error")
+	}
+	fileVariables := []*fileVariable{}
+
+	if v.Kind() == reflect.Ptr {
+		if v.IsNil() {
+			return fileVariables, nil
+		}
+		v = v.Elem()
+	}
+
+	if v.Type() == reflect.TypeOf(Upload{}) {
+		file := v.Interface().(Upload)
+		if file.Body == nil {
+			return nil, errors.New("Upload file body cannot be nil")
+		}
+		fileVariables = append(fileVariables, &fileVariable{
+			mapKey: parentKey,
+			file:   file,
+		})
+		return fileVariables, nil
+	}
+
+	switch v.Kind() {
+	case reflect.Struct:
+		for i := 0; i < v.NumField(); i++ {
+			field := v.Field(i)
+			fieldName := v.Type().Field(i).Name
+			jsonTag := v.Type().Field(i).Tag.Get("json")
+			if jsonTag != "" && jsonTag != "-" {
+				fieldName = jsonTag
+			}
+			files, err := findFiles(parentKey+"."+fieldName, field, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fileVariables = append(fileVariables, files...)
+		}
+	case reflect.Slice, reflect.Array:
+		for i := 0; i < v.Len(); i++ {
+			elem := v.Index(i)
+			files, err := findFiles(parentKey+"."+strconv.Itoa(i), elem, depth+1)
+			if err != nil {
+				return nil, err
+			}
+			fileVariables = append(fileVariables, files...)
+		}
+	default:
+	}
+
+	return fileVariables, nil
+}
+
+func createUploadFileRequest(req *Request, endpoint string, fileVariables []*fileVariable) (*http.Request, error) {
+	httpRequest, err := http.NewRequest(http.MethodPost, endpoint, http.NoBody)
+	if err != nil {
+		return nil, fmt.Errorf("error creating request: %w", err)
+	}
+	bodyBuf := &bytes.Buffer{}
+	bodyWriter := multipart.NewWriter(bodyBuf)
+	defer bodyWriter.Close()
+
+	// operations
+	requestBody, err := json.Marshal(req)
+	if err != nil {
+		return nil, fmt.Errorf("error marshalling request: %w", err)
+	}
+	err = bodyWriter.WriteField("operations", string(requestBody))
+	if err != nil {
+		return nil, fmt.Errorf("error writing operations to body: %w", err)
+	}
+
+	// map
+	mapData := ""
+	variablesString := []string{}
+	if len(fileVariables) > 0 {
+		for i, files := range fileVariables {
+			variablesString = append(variablesString, fmt.Sprintf("\"%d\":[\"%s\"]", i, files.mapKey))
+		}
+	}
+	mapData = `{` + strings.Join(variablesString, ",") + `}`
+	err = bodyWriter.WriteField("map", mapData)
+	if err != nil {
+		return nil, fmt.Errorf("error writing map data to body: %w", err)
+	}
+
+	// files
+	for i, fileVariable := range fileVariables {
+		header := make(textproto.MIMEHeader)
+		dispParams := map[string]string{"name": strconv.Itoa(i)}
+		fileName := strings.TrimSpace(fileVariable.file.FileName)
+		if fileName != "" {
+			dispParams["filename"] = fileName
+		}
+		header.Set("Content-Disposition", mime.FormatMediaType("form-data", dispParams))
+		fileBytes, err := io.ReadAll(fileVariable.file.Body)
+		if err != nil {
+			return nil, fmt.Errorf("error reading file: %w", err)
+		}
+		header.Set("Content-Type", http.DetectContentType(fileBytes))
+		partBodyWriter, err := bodyWriter.CreatePart(header)
+		if err != nil {
+			return nil, fmt.Errorf("error create multipart header: %w", err)
+		}
+		_, err = partBodyWriter.Write(fileBytes)
+		if err != nil {
+			return nil, fmt.Errorf("error writing file to body: %w", err)
+		}
+	}
+	httpRequest.Body = io.NopCloser(bodyBuf)
+	httpRequest.Header.Set("Content-Type", bodyWriter.FormDataContentType())
+
+	return httpRequest, nil
 }

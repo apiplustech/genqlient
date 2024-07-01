@@ -303,8 +303,23 @@ func (g *generator) convertDefinition(
 	// want, subject to the caveats described in Config.Bindings.)  Local
 	// bindings are checked in the caller (convertType) and never get here,
 	// unless the binding is "-" which means "ignore the global binding".
-	globalBinding, ok := g.Config.Bindings[def.Name]
-	if ok && options.Bind != "-" {
+	var (
+		hasBinding    bool
+		globalBinding *TypeBinding
+	)
+	// If it is scalar Upload, the default binding will be github.com/Khan/genqlient/graphql.Upload
+	if def.Kind == ast.Scalar && def.Name == "Upload" {
+		hasBinding = true
+		globalBinding = &TypeBinding{
+			Type: "github.com/Khan/genqlient/graphql.Upload",
+		}
+	}
+	// Override if there is user binding
+	if binding, ok := g.Config.Bindings[def.Name]; ok {
+		hasBinding = true
+		globalBinding = binding
+	}
+	if hasBinding && options.Bind != "-" {
 		if options.TypeName != "" {
 			// The option position (in the query) is more useful here.
 			return nil, errorf(options.pos,

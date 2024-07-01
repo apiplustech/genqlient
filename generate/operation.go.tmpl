@@ -27,6 +27,7 @@ func {{.Name}}(
         },
     {{end -}}
     }
+
     var err_ error
     {{if .Config.ClientGetter -}}
     var client_ graphql.Client
@@ -44,6 +45,6 @@ func {{.Name}}(
         req_,
         resp_,
     )
-	
+
     return &data_, {{if .Config.Extensions -}}resp_.Extensions,{{end -}} err_
 }
