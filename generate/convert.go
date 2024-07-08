@@ -307,11 +307,11 @@ func (g *generator) convertDefinition(
 		hasBinding    bool
 		globalBinding *TypeBinding
 	)
-	// If it is scalar Upload, the default binding will be github.com/Khan/genqlient/graphql.Upload
+	// If it is scalar Upload, the default binding will be github.com/apiplustech/genqlient/graphql.Upload
 	if def.Kind == ast.Scalar && def.Name == "Upload" {
 		hasBinding = true
 		globalBinding = &TypeBinding{
-			Type: "github.com/Khan/genqlient/graphql.Upload",
+			Type: "github.com/apiplustech/genqlient/graphql.Upload",
 		}
 	}
 	// Override if there is user binding
@@ -579,7 +579,7 @@ func (g *generator) convertDefinition(
 		// (If you had an entry in bindings, we would have returned it above.)
 		return nil, errorf(
 			pos, "unknown scalar %v: please add it to \"bindings\" in genqlient.yaml"+
-				"\nExample: https://github.com/Khan/genqlient/blob/main/example/genqlient.yaml#L12", def.Name)
+				"\nExample: https://github.com/apiplustech/genqlient/blob/main/example/genqlient.yaml#L12", def.Name)
 	default:
 		return nil, errorf(pos, "unexpected kind: %v", def.Kind)
 	}
@@ -686,7 +686,7 @@ func (g *generator) convertSelectionSet(
 				// selection, so we can put this error on the right line.
 				return nil, errorf(nil,
 					"genqlient doesn't allow duplicate fields with different selections "+
-						"(see https://github.com/Khan/genqlient/issues/64); "+
+						"(see https://github.com/apiplustech/genqlient/issues/64); "+
 						"duplicate field: %s.%s", containingTypedef.Name, field.JSONName)
 			default:
 				return nil, errorf(nil, "unexpected field-type: %T", field.GoType.Unwrap())

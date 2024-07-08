@@ -48,7 +48,7 @@ linters-settings:
         files: $all
         allow:
           - $gostd
-          - github.com/Khan/genqlient
+          - github.com/apiplustech/genqlient
           - github.com/vektah/gqlparser/v2
           - golang.org/x/tools
           - gopkg.in/yaml.v2

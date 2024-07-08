@@ -21,7 +21,7 @@ var cfgFilenames = []string{".genqlient.yml", ".genqlient.yaml", "genqlient.yml"
 type Config struct {
 	// The following fields are documented in the [genqlient.yaml docs].
 	//
-	// [genqlient.yaml docs]: https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+	// [genqlient.yaml docs]: https://github.com/apiplustech/genqlient/blob/main/docs/genqlient.yaml
 	Schema              StringList              `yaml:"schema"`
 	Operations          StringList              `yaml:"operations"`
 	Generated           string                  `yaml:"generated"`
@@ -54,7 +54,7 @@ type Config struct {
 // A TypeBinding represents a Go type to which genqlient will bind a particular
 // GraphQL type, and is documented further in the [genqlient.yaml docs].
 //
-// [genqlient.yaml docs]: https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+// [genqlient.yaml docs]: https://github.com/apiplustech/genqlient/blob/main/docs/genqlient.yaml
 type TypeBinding struct {
 	Type              string `yaml:"type"`
 	ExpectExactFields string `yaml:"expect_exact_fields"`
@@ -66,7 +66,7 @@ type TypeBinding struct {
 // automatically generate [TypeBinding] values, and is documented further in
 // the [genqlient.yaml docs].
 //
-// [genqlient.yaml docs]: https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+// [genqlient.yaml docs]: https://github.com/apiplustech/genqlient/blob/main/docs/genqlient.yaml
 type PackageBinding struct {
 	Package string `yaml:"package"`
 }
@@ -74,7 +74,7 @@ type PackageBinding struct {
 // CasingAlgorithm represents a way that genqlient can handle casing, and is
 // documented further in the [genqlient.yaml docs].
 //
-// [genqlient.yaml docs]: https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+// [genqlient.yaml docs]: https://github.com/apiplustech/genqlient/blob/main/docs/genqlient.yaml
 type CasingAlgorithm string
 
 const (
@@ -94,7 +94,7 @@ func (algo CasingAlgorithm) validate() error {
 // Casing wraps the casing-related options, and is documented further in
 // the [genqlient.yaml docs].
 //
-// [genqlient.yaml docs]: https://github.com/Khan/genqlient/blob/main/docs/genqlient.yaml
+// [genqlient.yaml docs]: https://github.com/apiplustech/genqlient/blob/main/docs/genqlient.yaml
 type Casing struct {
 	AllEnums CasingAlgorithm            `yaml:"all_enums"`
 	Enums    map[string]CasingAlgorithm `yaml:"enums"`
@@ -236,7 +236,7 @@ func (c *Config) ValidateAndFillDefaults(baseDir string) error {
 		} else {
 			return errorf(nil, "unable to guess package-name: %v"+
 				"\nSet package name in genqlient.yaml"+
-				"\nExample: https://github.com/Khan/genqlient/blob/main/example/genqlient.yaml#L6", err)
+				"\nExample: https://github.com/apiplustech/genqlient/blob/main/example/genqlient.yaml#L6", err)
 		}
 	} else { // err == nil
 		if c.Package == pkgName || c.Package == "" {

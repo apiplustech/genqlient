@@ -1,4 +1,4 @@
-module github.com/Khan/genqlient/internal/lint
+module github.com/apiplustech/genqlient/internal/lint
 
 go 1.21
 

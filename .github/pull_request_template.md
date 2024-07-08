@@ -1,6 +1,6 @@
 <!--
 Thanks for your contribution! Check out the
-[contributing docs](https://github.com/Khan/genqlient/blob/main/docs/CONTRIBUTING.md)
+[contributing docs](https://github.com/apiplustech/genqlient/blob/main/docs/CONTRIBUTING.md)
 for more on contributing to genqlient.
 -->
 
