@@ -80,9 +80,6 @@ func (g *generator) baseTypeForOperation(operation ast.Operation) (*ast.Definiti
 	case ast.Mutation:
 		return g.schema.Mutation, nil
 	case ast.Subscription:
-		if !g.Config.AllowBrokenFeatures {
-			return nil, errorf(nil, "genqlient does not yet support subscriptions")
-		}
 		return g.schema.Subscription, nil
 	default:
 		return nil, errorf(nil, "unexpected operation: %v", operation)
@@ -174,7 +171,8 @@ func (g *generator) convertArguments(
 			return nil, err
 		}
 
-		goName := upperFirst(arg.Variable)
+		goName := arg.Variable
+		goName = ApplyCasing(goName, g.Config.GetDefaultCasingAlgorithm(), true)
 		// Some of the arguments don't apply here, namely the name-prefix (see
 		// names.go) and the selection-set (we use all the input type's fields,
 		// and so on recursively).  See also the `case ast.InputObject` in
@@ -260,9 +258,18 @@ func (g *generator) convertType(
 			oe := true
 			options.Omitempty = &oe
 		}
+	} else if g.Config.Optional == "pointer_omitempty" && (options.GetPointer() || !typ.NonNull) {
+		if !options.PointerIsFalse() {
+			goTyp = &goPointerType{Elem: goTyp}
+		}
+
+		if options.Omitempty == nil {
+			oe := true
+			options.Omitempty = &oe
+		}
 	} else if !options.PointerIsFalse() && (options.GetPointer() || (!typ.NonNull && g.Config.Optional == "pointer")) {
 		// Whatever we get, wrap it in a pointer.  (Because of the way the
-		// options work, recursing here isn't as connvenient.)
+		// options work, recursing here isn't as convenient.)
 		// Note this does []*T or [][]*T, not e.g. *[][]T.  See #16.
 		goTyp = &goPointerType{goTyp}
 	} else if !typ.NonNull && g.Config.Optional == "generic" {
@@ -363,7 +370,7 @@ func (g *generator) convertDefinition(
 			// name-prefix, append the type-name anyway.  This happens when you
 			// assign a type name to an interface type, and we are generating
 			// one of its implementations.
-			name = makeLongTypeName(namePrefix, def.Name)
+			name = makeLongTypeName(namePrefix, def.Name, g.Config.GetDefaultCasingAlgorithm())
 		}
 		// (But the prefix is shared.)
 		namePrefix = newPrefixList(options.TypeName)
@@ -372,11 +379,11 @@ func (g *generator) convertDefinition(
 		// ever possibly generate for this type, so we don't need any of the
 		// qualifiers.  This is especially helpful because the caller is very
 		// likely to need to reference these types in their code.
-		name = upperFirst(def.Name)
+		name = ApplyCasing(def.Name, g.Config.GetDefaultCasingAlgorithm(), true)
 		// (namePrefix is ignored in this case.)
 	} else {
 		// Else, construct a name using the usual algorithm (see names.go).
-		name = makeTypeName(namePrefix, def.Name)
+		name = makeTypeName(namePrefix, def.Name, g.Config.GetDefaultCasingAlgorithm())
 	}
 
 	// If we already generated the type, we can skip it as long as it matches
@@ -451,7 +458,8 @@ func (g *generator) convertDefinition(
 				return nil, err
 			}
 
-			goName := upperFirst(field.Name)
+			goName := field.Name
+			goName = ApplyCasing(goName, g.Config.GetDefaultCasingAlgorithm(), true)
 			// Several of the arguments don't really make sense here:
 			// (note field.Type is necessarily a scalar, input, or enum)
 			//  - namePrefix is ignored for input types and enums (see
@@ -470,10 +478,10 @@ func (g *generator) convertDefinition(
 			}
 
 			if !g.Config.StructReferences {
-				// Only do these validation when StructReferences are not used, as that can generate types that would not
+				// Only do this validation when StructReferences are not used, as that can generate types that would not
 				// pass these validations. See https://github.com/Khan/genqlient/issues/342
 
-				// Try to protect against generating field type that has possibility to send `null` to non-nullable graphQL
+				// Try to protect against generating a field type that could send `null` to a non-nullable graphQL
 				// type. This does not protect against lists/slices, as Go zero-slices are already serialized as `null`
 				// (which can therefore currently send invalid graphQL value - e.g. `null` for [String!]!).
 				// And does not protect against custom MarshalJSON.
@@ -660,7 +668,7 @@ func (g *generator) convertSelectionSet(
 		// us.  (See also the special handling for IsEmbedded in
 		// unmarshal.go.tmpl.)
 		//
-		// But if you spread the samenamed fragment twice, e.g.
+		// But if you spread the same named fragment twice, e.g.
 		//	{ ...MyFragment, ... on SubType { ...MyFragment } }
 		// we'll still deduplicate that.
 		if field.JSONName == "" {
@@ -935,8 +943,14 @@ func (g *generator) convertField(
 			field.Position, "undefined field %v", field.Alias)
 	}
 
-	goName := upperFirst(field.Alias)
-	namePrefix = nextPrefix(namePrefix, field)
+	goName := field.Alias
+	if fieldOptions.Alias != "" {
+		goName = fieldOptions.Alias
+	}
+
+	goName = ApplyCasing(goName, g.Config.GetDefaultCasingAlgorithm(), true)
+
+	namePrefix = nextPrefix(namePrefix, field, g.Config.GetDefaultCasingAlgorithm())
 
 	fieldGoType, err := g.convertType(
 		namePrefix, field.Definition.Type, field.SelectionSet,
