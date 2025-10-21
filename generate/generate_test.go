@@ -9,8 +9,9 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/Khan/genqlient/internal/testutil"
 	"gopkg.in/yaml.v2"
+
+	"github.com/Khan/genqlient/internal/testutil"
 )
 
 const (
@@ -98,7 +99,6 @@ func TestGenerate(t *testing.T) {
 					},
 					"PokemonInput": {Type: "github.com/Khan/genqlient/internal/testutil.Pokemon"},
 				},
-				AllowBrokenFeatures: true,
 			})
 			if err != nil {
 				t.Fatal(err)
@@ -240,14 +240,40 @@ func TestGenerateWithConfig(t *testing.T) {
 				Enums: map[string]CasingAlgorithm{"Role": CasingRaw},
 			},
 		}},
+		{"OptionalPointerOmitEmpty", "", []string{
+			"InputObject.graphql",
+			"PointersOmitEmpty.graphql",
+			"Omitempty.graphql",
+			"ListInput.graphql",
+		}, &Config{
+			Optional: "pointer_omitempty",
+			Bindings: map[string]*TypeBinding{
+				"Date": {
+					Type:        "time.Time",
+					Marshaler:   "github.com/Khan/genqlient/internal/testutil.MarshalDate",
+					Unmarshaler: "github.com/Khan/genqlient/internal/testutil.UnmarshalDate",
+				},
+				"DateTime": {
+					Type:        "time.Time",
+					Marshaler:   "github.com/Khan/genqlient/internal/testutil.MarshalDate",
+					Unmarshaler: "github.com/Khan/genqlient/internal/testutil.UnmarshalDate",
+				},
+				"PokemonInput": {Type: "github.com/Khan/genqlient/internal/testutil.Pokemon"},
+			},
+		}},
 		{
 			"UseStructReference", "", []string{"UseStructReference.graphql"}, &Config{
 				StructReferences: true,
 			},
 		},
+		{
+			"AutoCamelCase", "", []string{"SnakeCaseFields.graphql", "SnakeCaseType.graphql"}, &Config{
+				Casing: Casing{
+					Default: CasingAutoCamelCase,
+				},
+			},
+		},
 	}
-
-	sourceFilename := "SimpleQuery.graphql"
 
 	for _, test := range tests {
 		config := test.config
@@ -255,39 +281,43 @@ func TestGenerateWithConfig(t *testing.T) {
 		t.Run(test.name, func(t *testing.T) {
 			err := config.ValidateAndFillDefaults(baseDir)
 			config.Schema = []string{filepath.Join(dataDir, "schema.graphql")}
-			if test.operations == nil {
-				config.Operations = []string{filepath.Join(dataDir, sourceFilename)}
-			} else {
-				config.Operations = make([]string, len(test.operations))
-				for i := range test.operations {
-					config.Operations[i] = filepath.Join(dataDir, test.operations[i])
-				}
-			}
-			if err != nil {
-				t.Fatal(err)
-			}
-			generated, err := Generate(config)
-			if err != nil {
-				t.Fatal(err)
+			operationFiles := test.operations
+			if operationFiles == nil {
+				operationFiles = []string{"SimpleQuery.graphql"}
 			}
 
-			for filename, content := range generated {
-				t.Run(filename, func(t *testing.T) {
-					testutil.Cupaloy.SnapshotT(t, string(content))
+			// Since we often reuse types across test cases, run generation
+			// separately for each to avoid conflicts.
+			for _, operationFile := range operationFiles {
+				t.Run(operationFile, func(t *testing.T) {
+					config.Operations = []string{filepath.Join(dataDir, operationFile)}
+					if err != nil {
+						t.Fatal(err)
+					}
+					generated, err := Generate(config)
+					if err != nil {
+						t.Fatal(err)
+					}
+
+					for filename, content := range generated {
+						t.Run(filename, func(t *testing.T) {
+							testutil.Cupaloy.SnapshotT(t, string(content))
+						})
+					}
+
+					t.Run("Build", func(t *testing.T) {
+						if testing.Short() {
+							t.Skip("skipping build due to -short")
+						}
+
+						err := buildGoFile(operationFile,
+							generated[config.Generated])
+						if err != nil {
+							t.Error(err)
+						}
+					})
 				})
 			}
-
-			t.Run("Build", func(t *testing.T) {
-				if testing.Short() {
-					t.Skip("skipping build due to -short")
-				}
-
-				err := buildGoFile(sourceFilename,
-					generated[config.Generated])
-				if err != nil {
-					t.Error(err)
-				}
-			})
 		})
 	}
 }
@@ -295,7 +325,7 @@ func TestGenerateWithConfig(t *testing.T) {
 // TestGenerateErrors is a snapshot-based test of error text.
 //
 // For each .go or .graphql file in testdata/errors, it asserts that the given
-// query returns an error, and that that error's string-text matches the
+// query returns an error, and that the error's string-text matches the
 // snapshot.  The snapshotting is useful to ensure we don't accidentally make
 // the text less readable, drop the line numbers, etc.  We include both .go and
 // .graphql tests for some of the test cases, to make sure the line numbers
@@ -345,7 +375,6 @@ func TestGenerateErrors(t *testing.T) {
 						ExpectExactFields: "{ species level }",
 					},
 				},
-				AllowBrokenFeatures: true,
 			})
 			if err == nil {
 				t.Fatal("expected an error")
