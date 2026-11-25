@@ -421,8 +421,10 @@ func findFiles(parentKey string, v reflect.Value, depth int) ([]*fileVariable, e
 			field := v.Field(i)
 			fieldName := v.Type().Field(i).Name
 			jsonTag := v.Type().Field(i).Tag.Get("json")
-			if jsonTag != "" && jsonTag != "-" {
-				fieldName = jsonTag
+			// The map key must match the variable's JSON path, so use the tag's name
+			// part only: `json:"file,omitempty"` is encoded as "file".
+			if tagName, _, _ := strings.Cut(jsonTag, ","); tagName != "" && tagName != "-" {
+				fieldName = tagName
 			}
 			files, err := findFiles(parentKey+"."+fieldName, field, depth+1)
 			if err != nil {

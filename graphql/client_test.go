@@ -6,6 +6,8 @@ import (
 	"errors"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
+	"strings"
 	"testing"
 
 	"github.com/stretchr/testify/assert"
@@ -118,4 +120,38 @@ func TestMakeRequestSuccess(t *testing.T) {
 
 	assert.NoError(t, err)
 	assert.Equal(t, map[string]interface{}{"test": "success"}, resp.Data)
+}
+
+func TestFindFilesMapKeyUsesJSONTagName(t *testing.T) {
+	// Shaped like a genqlient-generated variables struct whose input type has an
+	// optional Upload field generated with `omitempty: true`.
+	type entryUploadInput struct {
+		File    *Upload `json:"file,omitempty"`
+		FromUrl *string `json:"fromUrl,omitempty"`
+		Name    string  `json:"name"`
+	}
+	type variables struct {
+		Destination struct {
+			Path string `json:"path"`
+		} `json:"destination"`
+		Inputs []entryUploadInput `json:"inputs"`
+		Extra  *Upload            `json:",omitempty"`
+	}
+	fromURL := "https://example.com/a.png"
+	vars := &variables{
+		Inputs: []entryUploadInput{
+			{File: &Upload{FileName: "a.txt", Body: strings.NewReader("a")}, Name: "a.txt"},
+			{FromUrl: &fromURL, Name: "dir"},
+		},
+		Extra: &Upload{FileName: "b.txt", Body: strings.NewReader("b")},
+	}
+
+	files, err := findFiles("variables", reflect.ValueOf(vars), 0)
+
+	assert.NoError(t, err)
+	mapKeys := make([]string, 0, len(files))
+	for _, file := range files {
+		mapKeys = append(mapKeys, file.mapKey)
+	}
+	assert.Equal(t, []string{"variables.inputs.0.file", "variables.Extra"}, mapKeys)
 }
