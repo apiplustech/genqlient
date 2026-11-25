@@ -14,6 +14,7 @@ When releasing a new version:
 
 ### Bug fixes:
 
+- fields with `@skip` or `@include` are now treated as nullable: under `optional: pointer` or `optional: generic` they generate as a pointer or `Option` and can represent an absent value, instead of silently decoding an absent field to the zero value (#424). This is technically a breaking change for non-null fields with `@skip`/`@include` under those configs.
 -->
 
 ## next
@@ -28,8 +29,14 @@ Note that genqlient now requires Go 1.23 or higher, and is tested through Go 1.2
 
 ### New features:
 
+- Added a global `flatten` option to `genqlient.yaml` that applies `@genqlient(flatten: true)` to every operation and named fragment, so flattenable fragment-spreads are flattened project-wide without per-query directives (fixes #404). It is only applied where flattening is valid, so it is safe to enable globally.
+- Added `--version` flag to print version information including commit hash and build date
+
 ### Bug fixes:
 
+- Automatically use pointers for direct self-references in generated input structs, instead of generating invalid recursive Go types (#152). An explicit `pointer: false` on such a field now reports an error.
+- replaced the archived `gopkg.in/yaml.v2` dependency with the maintained `go.yaml.in/yaml/v3` (the YAML organization's successor to `gopkg.in/yaml.v3`) for config parsing.
+- fixed `pointer_omitempty` not being applied to list types when `use_struct_references` is enabled. List fields like `[String!]` now correctly get the `omitempty` JSON tag.
 - fixed minor typos and grammatical issues across the project
 
 ## v0.8.1

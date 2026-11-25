@@ -239,7 +239,20 @@ func (g *generator) convertType(
 		// Type is a list.
 		elem, err := g.convertType(
 			namePrefix, typ.Elem, selectionSet, options, queryOptions)
-		return &goSliceType{elem}, err
+		// For list types, we need to handle pointer_omitempty here because
+		// the code below won't be executed for slices.
+		// If the list itself is nullable (e.g., [String!] vs [String!]!),
+		// and pointer_omitempty is configured, we should set omitempty.
+		if err != nil {
+			return nil, err
+		}
+		if g.Config.Optional == "pointer_omitempty" && !typ.NonNull {
+			if options.Omitempty == nil {
+				oe := true
+				options.Omitempty = &oe
+			}
+		}
+		return &goSliceType{elem}, nil
 	}
 
 	// If this is a builtin type or custom scalar, just refer to it.
@@ -475,6 +488,16 @@ func (g *generator) convertDefinition(
 				namePrefix, field.Type, nil, fieldOptions, queryOptions)
 			if err != nil {
 				return nil, err
+			}
+
+			// A struct cannot contain itself by value. Only adjust a direct
+			// reference: slices, pointers, and user-provided types may already
+			// provide the indirection needed for recursive inputs.
+			if fieldGoType == goType {
+				if fieldOptions.PointerIsFalse() {
+					return nil, errorf(field.Position, "pointer: false is not allowed on a self-recursive input field: %s.%s", name, field.Name)
+				}
+				fieldGoType = &goPointerType{Elem: fieldGoType}
 			}
 
 			if !g.Config.StructReferences {
@@ -952,8 +975,18 @@ func (g *generator) convertField(
 
 	namePrefix = nextPrefix(namePrefix, field, g.Config.GetDefaultCasingAlgorithm())
 
+	// A field with @skip or @include may be absent from the response even when
+	// its schema type is non-null, so treat it as nullable (like `id: ID` rather
+	// than `id: ID!`) and let the usual optional-handling decide.
+	fieldType := field.Definition.Type
+	if field.Directives.ForName("skip") != nil || field.Directives.ForName("include") != nil {
+		nullableType := *fieldType
+		nullableType.NonNull = false
+		fieldType = &nullableType
+	}
+
 	fieldGoType, err := g.convertType(
-		namePrefix, field.Definition.Type, field.SelectionSet,
+		namePrefix, fieldType, field.SelectionSet,
 		fieldOptions, queryOptions)
 	if err != nil {
 		return nil, err
